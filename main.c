@@ -40,9 +40,30 @@ typedef enum {
 typedef struct {
     Tile_Type type;
 
+    int x, y;
+
     bool has_player;
     bool has_box;
 } Tile;
+
+typedef enum {
+    NORTH,
+    EAST,
+    WEST,
+    SOUTH,
+} Direction;
+
+typedef enum {
+    MOVE,
+} Event_Type;
+
+typedef struct {
+    Event_Type type;
+    union {
+        Direction direction;
+    };
+    bool is_handled;
+} Event;
 
 typedef struct {
     Tile tiles[100][100];
@@ -81,6 +102,11 @@ typedef struct {
     } loading;
 
     Board board;
+
+    Event events[100];
+    int event_count;
+
+    int level;
 
 } Game_State;
 
@@ -121,6 +147,15 @@ void load_images(SDL_Renderer *renderer)
     load_image(renderer, sheet.filename);
 }
 
+Event make_event(Event_Type type, Direction direction)
+{
+    return (Event) {
+        type,
+        direction,
+        false
+    };
+}
+
 void get_input(Game_State *game_state)
 {
     SDL_GetMouseState(&game_state->ui.mouse_position.x, &game_state->ui.mouse_position.y);
@@ -140,6 +175,26 @@ void get_input(Game_State *game_state)
 
                     case SDLK_r:
                         game_state->reset = true;
+                        break;
+
+                    case SDLK_w:
+                        game_state->events[game_state->event_count] = make_event(MOVE, NORTH);
+                        game_state->event_count += 1;
+                        break;
+
+                    case SDLK_a:
+                        game_state->events[game_state->event_count] = make_event(MOVE, WEST);
+                        game_state->event_count += 1;
+                        break;
+
+                    case SDLK_s:
+                        game_state->events[game_state->event_count] = make_event(MOVE, SOUTH);
+                        game_state->event_count += 1;
+                        break;
+
+                    case SDLK_d:
+                        game_state->events[game_state->event_count] = make_event(MOVE, EAST);
+                        game_state->event_count += 1;
                         break;
 
                     default:
@@ -169,6 +224,83 @@ void get_input(Game_State *game_state)
     }
 }
 
+void apply_event(Event event, Board *board)
+{
+    switch (event.type)
+    {
+        case MOVE: {
+            int x_increment = 0;
+            int y_increment = 0;
+
+            switch (event.direction)
+            {
+                case NORTH: x_increment = -1;    y_increment = 0;   break;
+                case WEST:  x_increment = 0;     y_increment = -1;    break;
+                case SOUTH: x_increment = 1;     y_increment = 0;    break;
+                case EAST:  x_increment = 0;     y_increment = 1;    break;
+                default: break;
+            }
+
+            Tile *player_tile;
+            for (int i = 0; i < board->h; i += 1)
+            {
+                for (int j = 0; j < board->w; j += 1)
+                {
+                    if (board->tiles[i][j].has_player) player_tile = &board->tiles[i][j];
+                }
+            }
+
+            int target_x = player_tile->x + x_increment;
+            int target_y = player_tile->y + y_increment;
+            Tile *target_tile = &board->tiles[target_x][target_y];
+
+            if (target_tile->type == WALL) {
+                return;
+            } else if (target_tile->type == FLOOR || target_tile->type == GOAL) {
+                if (target_tile->has_box) {
+                    int next_target_x = target_tile->x + x_increment;
+                    int next_target_y = target_tile->y + y_increment;
+                    Tile *next_target_tile = &board->tiles[next_target_x][next_target_y];
+
+                    if (next_target_tile->type == WALL) {
+                        return;
+                    } else if (next_target_tile->type == FLOOR || next_target_tile->type == GOAL) {
+                        target_tile->has_box = false;
+                        next_target_tile->has_box = true;
+
+                        target_tile->has_player = true;
+
+                        player_tile->has_player = false;
+                    }
+                } else {
+                    player_tile->has_player = false;
+                    target_tile->has_player = true;
+                }
+            }
+
+        } break;
+
+        default: {
+        } break;
+    }
+}
+
+bool handle_events(Game_State *game_state)
+{
+    bool did_something = false;
+
+    int i = game_state->event_count-1;
+    while (!game_state->events[i].is_handled)
+    {
+        apply_event(game_state->events[i], &game_state->board);
+        game_state->events[i].is_handled = true;
+
+        did_something = true;
+    }
+
+    return did_something;
+}
+
 void handle_button(Game_State *game_state, Button *button)
 {
     switch (button->type)
@@ -187,11 +319,14 @@ void handle_button(Game_State *game_state, Button *button)
     }
 }
 
-void populate_board_with_level(Board *board)
+bool populate_board_with_level(Board *board, int level_number)
 {
-    char *level = "../assets/levels/1.txt";
+    char level[50];
+    sprintf(level, "../assets/levels/%d.txt", level_number);
 
     FILE *file = fopen(level, "r");
+
+    if (!file) return false;
 
     char *data;
     int size;
@@ -244,6 +379,8 @@ void populate_board_with_level(Board *board)
 
             tile->has_player = false;
             tile->has_box = false;
+            tile->x = i;
+            tile->y = j;
 
             switch (data[raw_index]) {
                 case '.':
@@ -274,6 +411,23 @@ void populate_board_with_level(Board *board)
 
         i += 1;
     }
+
+    return true;
+}
+
+bool check_win_conditions(Board board)
+{
+    for (int i = 0; i < board.h; i += 1)
+    {
+        for (int j = 0; j < board.w; j += 1)
+        {
+            if (board.tiles[i][j].type == GOAL && !board.tiles[i][j].has_box) {
+                return false;
+            }
+        }
+    }
+
+    return true;
 }
 
 void update(Game_State *game_state, float delta_t)
@@ -322,9 +476,27 @@ void update(Game_State *game_state, float delta_t)
             if (game_state->reset) {
                 game_state->ui.button_count = 0;
 
-                populate_board_with_level(&game_state->board);
+                bool next_level_exists = populate_board_with_level(&game_state->board, game_state->level);
+
+                if (!next_level_exists) {
+                    game_state->mode = TITLE;
+                    return;
+                }
 
                 game_state->reset = false;
+            }
+
+            if (game_state->event_count > 0) {
+                bool did_something = handle_events(game_state);
+
+                if (did_something) {
+                    bool won = check_win_conditions(game_state->board);
+
+                    if (won) {
+                        game_state->level += 1;
+                        game_state->reset = true;
+                    }
+                }
             }
         } break;
 
@@ -339,6 +511,7 @@ void update(Game_State *game_state, float delta_t)
 
             if (game_state->loading.time_elapsed > game_state->loading.total_time) {
                 game_state->mode = GAME;
+                game_state->level = 1;
                 game_state->reset = true;
             }
         } break;
@@ -625,6 +798,8 @@ int main(int argc, char *argv[])
     game_state.ui.font = font;
     game_state.ui.title_font = title_font;
     game_state.ui.font_color = font_color;
+    game_state.event_count = 0;
+    game_state.level = 1;
 
     load_images(renderer);
 
