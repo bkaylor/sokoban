@@ -513,6 +513,9 @@ void update(Game_State *game_state, float delta_t)
                 game_state->mode = GAME;
                 game_state->level = 1;
                 game_state->reset = true;
+
+                game_state->board.w = 0;
+                game_state->board.h = 0;
             }
         } break;
 
