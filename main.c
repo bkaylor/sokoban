@@ -480,6 +480,7 @@ void update(Game_State *game_state, float delta_t)
 
                 if (!next_level_exists) {
                     game_state->mode = TITLE;
+                    game_state->level = 1;
                     return;
                 }
 
@@ -801,7 +802,7 @@ int main(int argc, char *argv[])
     game_state.ui.font = font;
     game_state.ui.title_font = title_font;
     game_state.ui.font_color = font_color;
-    game_state.event_count = 0;
+    game_state.event_count = 0; // TODO(bkaylor): Do this between levels...
     game_state.level = 1;
 
     load_images(renderer);
